@@ -3,7 +3,7 @@
 
 ☐ Projektordner strukturiert angelegt
 
-☐ Build-System eingerichtet (z. B. CMake)
+☐ Build-System eingerichtet (z. B. Gradle)
 
 ☐ Trennung in Module (Lexer, Parser, AST, Interpreter, REPL)
 
