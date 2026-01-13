@@ -9,19 +9,7 @@
 
 🔤 Lexer
 
-☐ Token-Typen als Enum definiert
-
-☐ Token-Struktur (Typ, Lexem, Position)
-
-☐ Whitespace wird ignoriert
-
-☐ Kommentare werden ignoriert
-
-☐ Keywords erkannt
-
-☐ Zahlen & Identifikatoren korrekt erkannt
-
-☐ Lexikalische Fehler werden gemeldet
+Wird von ANTLR übernommen
 
 🌳 AST (Abstract Syntax Tree)
 
@@ -37,17 +25,7 @@
 
 🧩 Parser
 
-☐ Token-Stream Verwaltung (advance, peek, match)
-
-☐ Parser für Ausdrücke implementiert
-
-☐ Operator-Prioritäten korrekt umgesetzt
-
-☐ Parser für Statements implementiert
-
-☐ Block-Strukturen ({}) unterstützt
-
-☐ Sinnvolle Syntaxfehler ausgegeben
+Wird von ANTLR übernommen
 
 🧠 Interpreter
 
