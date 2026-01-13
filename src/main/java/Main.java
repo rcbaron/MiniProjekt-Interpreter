@@ -1,5 +1,7 @@
 import org.antlr.v4.runtime.*;
 import org.antlr.v4.runtime.tree.*;
+import minicpp.antlr.MiniCppLexer;
+import minicpp.antlr.MiniCppParser;
 
 public class Main {
     public static void main(String[] args) throws Exception {
