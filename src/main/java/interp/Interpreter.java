@@ -11,6 +11,7 @@ public class Interpreter {
 
     // Scope-Stack: top = aktueller Scope
     private final Deque<Map<String, Object>> scopes = new ArrayDeque<>();
+    private final Map<String, java.util.List<ast.FunctionDecl>> functions = new HashMap<>();
 
     public Interpreter() {
         // globaler Scope
@@ -19,8 +20,27 @@ public class Interpreter {
 
     // --------- Public API ---------
 
-    public void run(ASTNode node) {
+    public Object run(ASTNode node) {
+        // 1) Programm "ausführen" = Funktionen registrieren + evtl. Top-Level-Statements
         exec(node);
+
+        java.util.List<ast.FunctionDecl> mains = functions.get("main");
+        if (mains == null || mains.isEmpty()) {
+            throw new RuntimeException("No main function");
+        }
+        if (mains.size() != 1) {
+            throw new RuntimeException("Ambiguous main()");
+        }
+        ast.FunctionDecl main = mains.get(0);
+
+
+        // 3) main ausführen (mit ReturnValue catch)
+        try {
+            exec(main.body);
+            return null;
+        } catch (interp.ReturnValue rv) {
+            return rv.value;
+        }
     }
 
     // --------- Scope helpers ---------
@@ -66,10 +86,11 @@ public class Interpreter {
             return last;
         }
 
-        // FunctionDecl: minimal -> Body ausführen
         if (node instanceof FunctionDecl f) {
-            return exec(f.body);
+            functions.computeIfAbsent(f.name, k -> new java.util.ArrayList<>()).add(f);
+            return null;
         }
+
 
         // BlockStmt: neuer Scope
         if (node instanceof BlockStmt b) {
@@ -120,6 +141,12 @@ public class Interpreter {
             return last;
         }
 
+        if (node instanceof ast.ReturnStmt rs) {
+            Object v = (rs.expr != null) ? eval(rs.expr) : null;
+            throw new interp.ReturnValue(v);
+        }
+
+
 
         throw new RuntimeException("Unknown AST node in exec: " + node.getClass().getSimpleName());
     }
@@ -128,6 +155,65 @@ public class Interpreter {
 
     private Object eval(Expr e) {
         if (e instanceof IntLiteral il) return il.value;
+
+        if (e instanceof ast.FunctionCallExpr fc) {
+            java.util.List<ast.FunctionDecl> overloads = functions.get(fc.name);
+            if (overloads == null || overloads.isEmpty()) {
+                throw new RuntimeException("Undefined function: " + fc.name);
+            }
+
+            java.util.List<ast.FunctionDecl> candidates = new java.util.ArrayList<>();
+            for (ast.FunctionDecl cand : overloads) {
+                if (cand.params.size() == fc.args.size()) {
+                    candidates.add(cand);
+                }
+            }
+
+            if (candidates.isEmpty()) {
+                throw new RuntimeException("No matching overload for " + fc.name +
+                        " with " + fc.args.size() + " args");
+            }
+            if (candidates.size() > 1) {
+                throw new RuntimeException("Ambiguous overload for " + fc.name +
+                        " with " + fc.args.size() + " args");
+            }
+
+            ast.FunctionDecl f = candidates.get(0);
+
+
+            // Arity check
+            if (fc.args.size() != f.params.size()) {
+                throw new RuntimeException("Arity mismatch for " + fc.name +
+                        ": expected " + f.params.size() + " got " + fc.args.size());
+            }
+
+            // Argumente auswerten
+            java.util.List<Object> values = new java.util.ArrayList<>();
+            for (ast.Expr arg : fc.args) {
+                values.add(eval(arg));
+            }
+
+            // Neuer Scope für den Funktionsaufruf
+            scopes.push(new java.util.HashMap<>());
+            try {
+                // Parameter binden: a=..., b=...
+                for (int i = 0; i < f.params.size(); i++) {
+                    define(f.params.get(i).name, values.get(i));
+                }
+
+                // Body ausführen + return abfangen
+                try {
+                    exec(f.body);
+                    return null;
+                } catch (interp.ReturnValue rv) {
+                    return rv.value;
+                }
+
+            } finally {
+                scopes.pop();
+            }
+        }
+
 
         if (e instanceof VarExpr ve) {
             return lookup(ve.name);

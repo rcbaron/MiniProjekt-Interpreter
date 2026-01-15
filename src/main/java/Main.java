@@ -14,10 +14,15 @@ public class Main {
 
         // --------- Testeingabe ---------
         String input = """
-            int main() {
-            (2 + 1) * 3;
-            }
+        int f(int a) { return a + 1; }
+        int f(int a, int b) { return a + b; }
+
+        int main() {
+         f(10);
+         f(2, 3);
+        }
         """;
+
 
         // --------- Lexer ---------
         MiniCppLexer lexer = new MiniCppLexer(
@@ -41,7 +46,8 @@ public class Main {
         // --------- Interpretieren ---------
         try {
             Interpreter interpreter = new Interpreter();
-            interpreter.run(ast);
+            Object ret = interpreter.run(ast);
+            System.out.println("main returned: " + ret);
         } catch (RuntimeException ex) {
             System.out.println("Runtime error: " + ex.getMessage());
         }

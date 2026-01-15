@@ -94,11 +94,13 @@ unaryExpr
     ;
 
 primary
-    : INT                           # IntLiteral
+    : ID '(' argList? ')'           # FuncCall
+    | INT                           # IntLiteral
     | BOOL                          # BoolLiteral
     | ID                            # Var
     | '(' expr ')'                  # Parens
     ;
+
 
 argList
     : expr (',' expr)*

@@ -75,11 +75,21 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
     }
 
     @Override
-    public ASTNode visitFunctionDecl(MiniCppParser.FunctionDeclContext ctx) {
-        BlockStmt body = (BlockStmt) visit(ctx.block()); // jetzt liefert das NICHT mehr null
+    public ast.ASTNode visitFunctionDecl(parser.MiniCppParser.FunctionDeclContext ctx) {
         String name = ctx.ID().getText();
-        return new FunctionDecl(name, body);
+
+        java.util.List<ast.Param> params = new java.util.ArrayList<>();
+        if (ctx.paramList() != null) {
+            for (parser.MiniCppParser.ParamContext p : ctx.paramList().param()) {
+                params.add(new ast.Param(p.ID().getText()));
+            }
+        }
+
+        ast.BlockStmt body = (ast.BlockStmt) visit(ctx.block());
+        return new ast.FunctionDecl(name, params, body);
     }
+
+
 
     // ---------- Expressions ----------
 
@@ -244,6 +254,24 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
         return new ast.BinaryExpr("||", left, right);
     }
 
+    @Override
+    public ast.ASTNode visitReturnStmt(parser.MiniCppParser.ReturnStmtContext ctx) {
+        ast.Expr e = (ctx.expr() != null) ? (ast.Expr) visit(ctx.expr()) : null;
+        return new ast.ReturnStmt(e);
+    }
 
+    @Override
+    public ast.ASTNode visitFuncCall(parser.MiniCppParser.FuncCallContext ctx) {
+        String name = ctx.ID().getText();
+
+        java.util.List<ast.Expr> args = new java.util.ArrayList<>();
+        if (ctx.argList() != null) {
+            for (parser.MiniCppParser.ExprContext e : ctx.argList().expr()) {
+                args.add((ast.Expr) visit(e));
+            }
+        }
+
+        return new ast.FunctionCallExpr(name, args);
+    }
 
 }
