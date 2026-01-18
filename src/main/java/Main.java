@@ -14,18 +14,28 @@ public class Main {
 
         // --------- Testeingabe ---------
         String input = """
-             class A {
-                       public:
-                         int x;
-                         int get() { return x; }
-                     }
-                     
-                     int main() {
-                       A a;
-                       a.x = 5;
-                       a.get();
-                     }
-                     
+               class B {
+                                  public:
+                                    int x;
+                                }
+                                
+                                class D : public B {
+                                  public:
+                                    int y;
+                                }
+                                
+                                int main() {
+                                  D d;
+                                  d.x = 1;
+                                  d.y = 2;
+                                
+                                  B b;
+                                  b = d;     // slicing
+                                
+                                  b.x;       // muss 1 sein
+                                  
+                                }
+                                
         """;
 
 

@@ -47,8 +47,6 @@ public class Interpreter {
         }
     }
 
-    // --------- Scope helpers ---------
-
     // --------- Scope helpers (NEU) ---------
 
     private void define(String name, Binding binding) {
@@ -108,6 +106,43 @@ public class Interpreter {
         }
         throw new RuntimeException("Not an lvalue: " + e.getClass().getSimpleName());
     }
+
+    private boolean isCallThroughRef(ast.Expr recv) {
+        if (recv instanceof ast.VarExpr v) {
+            return lookupBinding(v.name).type() instanceof ast.RefTypeNode;
+        }
+        return false;
+    }
+
+    private boolean isSubclass(String sub, String base) {
+        if (sub.equals(base)) return true;
+        ClassInfo ci = classes.get(sub);
+        if (ci == null || ci.baseName == null) return false;
+        return isSubclass(ci.baseName, base);
+    }
+
+    private java.util.LinkedHashMap<String, ast.TypeNode> collectAllFields(String className) {
+        ClassInfo ci = classInfo(className);
+        var res = new java.util.LinkedHashMap<String, ast.TypeNode>();
+        if (ci.baseName != null) res.putAll(collectAllFields(ci.baseName));
+        res.putAll(ci.fields);
+        return res;
+    }
+
+    private interp.InstanceValue sliceTo(String base, interp.InstanceValue inst) {
+        var fieldTypes = collectAllFields(base);
+        var cells = new java.util.LinkedHashMap<String, Cell>();
+
+        for (var e : fieldTypes.entrySet()) {
+            String fname = e.getKey();
+            ast.TypeNode ftype = e.getValue();
+            Cell src = inst.fieldCells.get(fname);
+            Object v = (src != null) ? src.get() : defaultValue(ftype);
+            cells.put(fname, new Cell(v));
+        }
+        return new interp.InstanceValue(base, cells);
+    }
+
 
 
     // --------- Execution ---------
@@ -353,7 +388,6 @@ public class Interpreter {
                         define(p.name, new ValueBinding(p.type, new Cell(v)));
                     }
                 }
-
                 // Body ausführen + return abfangen
                 try {
                     exec(f.body);
@@ -366,7 +400,6 @@ public class Interpreter {
                 scopes.pop();
             }
         }
-
 
         if (e instanceof VarExpr ve) {
             return lookupValue(ve.name);
@@ -383,12 +416,16 @@ public class Interpreter {
                 throw new RuntimeException("Method call on non-object");
             }
 
-            // 2) Klasse holen
-            ClassInfo ci = classes.get(inst.dynamicClass);
-            if (ci == null) throw new RuntimeException("Unknown class: " + inst.dynamicClass);
+            ast.TypeNode staticT = inferType(mc.obj);
+            if (!(staticT instanceof ast.ClassTypeNode st)) {
+                throw new RuntimeException("Receiver has no class type");
+            }
+            String staticClass = st.name;
 
-            java.util.List<MethodInfo> overloads = ci.methods.get(mc.method);
-            if (overloads == null || overloads.isEmpty()) {
+
+            // 2) Overloads in Klassenhierarchie suchen (inkl. Basisklassen)
+            java.util.List<MethodInfo> overloads = getMethodOverloadsInHierarchy(staticClass, mc.method);
+            if (overloads.isEmpty()) {
                 throw new RuntimeException("Undefined method: " + inst.dynamicClass + "." + mc.method);
             }
 
@@ -431,6 +468,10 @@ public class Interpreter {
 
             if (target == null) {
                 throw new RuntimeException("No matching overload for " + mc.method + " with given argument types");
+            }
+            // virtual dispatch wie C++: nur wenn statische Methode virtual ist UND Call über Referenz passiert
+            if (target.isVirtual && isCallThroughRef(mc.obj)) {
+                target = resolveOverride(inst.dynamicClass, target.name, target.params);
             }
 
             // 6) Call ausführen: Receiver setzen + Scope
@@ -501,10 +542,25 @@ public class Interpreter {
                 }
 
                 case "=" -> {
-                    Cell left = evalLValue(be.left);   // VarExpr oder FieldAccessExpr
-                    left.set(r);
-                    yield r;
+                    Cell left = evalLValue(be.left);
+                    Object right = eval(be.right);
+
+                    // Slicing: Base b; b = d;  (b ist ClassType Base, right ist InstanceValue von Subklasse)
+                    if (be.left instanceof ast.VarExpr lv) {
+                        ast.TypeNode lt = lookupBinding(lv.name).type();
+
+                        if (lt instanceof ast.ClassTypeNode lct && right instanceof interp.InstanceValue instR) {
+                            // RHS darf Subklasse sein -> slice auf LHS-Typ
+                            if (!instR.dynamicClass.equals(lct.name) && isSubclass(instR.dynamicClass, lct.name)) {
+                                right = sliceTo(lct.name, instR);
+                            }
+                        }
+                    }
+
+                    left.set(right);
+                    yield right;
                 }
+
 
 
                 case "==" -> ((Integer) l).intValue() == ((Integer) r).intValue();
@@ -564,11 +620,12 @@ public class Interpreter {
 
         // Variable
         if (e instanceof ast.VarExpr ve) {
-            Object v = lookupValue(ve.name);
-            ast.TypeNode t = typeOfValue(v);
-            if (t == null) {
-                throw new RuntimeException("Cannot infer type of variable: " + ve.name);
-            }
+            Binding b = lookupBinding(ve.name);
+            ast.TypeNode t = b.type();
+
+            // Beim Verwenden einer Referenz zählt der Basistyp
+            if (t instanceof ast.RefTypeNode rt) return rt.base;
+
             return t;
         }
 
@@ -604,12 +661,13 @@ public class Interpreter {
                 // Methode: als MethodInfo speichern (minimal)
                 MethodInfo mi = new MethodInfo(
                         f.name,
-                        /* returnType */ null,            // wenn ihr ReturnType noch nicht im AST habt
+                        null,
                         f.params,
                         f.body,
-                        /* isVirtual */ false,
+                        f.isVirtual,   // <-- statt false
                         c.name
                 );
+
                 ci.methods.computeIfAbsent(f.name, k -> new java.util.ArrayList<>()).add(mi);
             } else {
                 throw new RuntimeException("Unknown class member: " + m.getClass().getSimpleName());
@@ -634,11 +692,56 @@ public class Interpreter {
 
         java.util.LinkedHashMap<String, Cell> fieldCells = new java.util.LinkedHashMap<>();
         // Felder (ohne Vererbung erstmal)
-        for (var e : ci.fields.entrySet()) {
+        var allFields = collectAllFields(className);
+        for (var e : allFields.entrySet()) {
             fieldCells.put(e.getKey(), new Cell(defaultValue(e.getValue())));
         }
         return new interp.InstanceValue(className, fieldCells);
     }
+
+    private java.util.List<MethodInfo> getMethodOverloadsInHierarchy(String className, String methodName) {
+        ClassInfo ci = classInfo(className);
+
+        java.util.List<MethodInfo> here = ci.methods.get(methodName);
+        if (here != null && !here.isEmpty()) return here;
+
+        if (ci.baseName != null) return getMethodOverloadsInHierarchy(ci.baseName, methodName);
+        return java.util.List.of();
+    }
+
+
+    private ClassInfo classInfo(String name) {
+        ClassInfo ci = classes.get(name);
+        if (ci == null) throw new RuntimeException("Unknown class: " + name);
+        return ci;
+    }
+
+    private boolean sameParamTypes(java.util.List<ast.Param> a, java.util.List<ast.Param> b) {
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            if (!sameType(a.get(i).type, b.get(i).type)) return false;
+        }
+        return true;
+    }
+
+    private MethodInfo resolveOverride(String dynClass, String name, java.util.List<ast.Param> params) {
+        ClassInfo ci = classInfo(dynClass);
+
+        java.util.List<MethodInfo> overloads = ci.methods.get(name);
+        if (overloads != null) {
+            for (MethodInfo m : overloads) {
+                if (sameParamTypes(m.params, params)) return m;
+            }
+        }
+
+        if (ci.baseName != null) return resolveOverride(ci.baseName, name, params);
+
+        throw new RuntimeException("BUG: override resolution failed for " + name);
+    }
+
+
+
+
 
 
 

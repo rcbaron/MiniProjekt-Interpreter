@@ -94,7 +94,8 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
         ast.BlockStmt body = (ast.BlockStmt) visit(ctx.block());
 
         // AST-Knoten erzeugen
-        return new ast.FunctionDecl(name, params, body);
+        boolean isVirtual = (ctx.getStart().getText().equals("virtual"));
+        return new ast.FunctionDecl(name, params, body, isVirtual);
     }
 
     @Override
