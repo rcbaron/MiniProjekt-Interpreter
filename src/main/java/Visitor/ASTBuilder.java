@@ -110,6 +110,7 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
      */
     @Override
     public ast.ASTNode visitFunctionDecl(parser.MiniCppParser.FunctionDeclContext ctx) {
+
         // Funktionsname
         String name = ctx.ID().getText();
 

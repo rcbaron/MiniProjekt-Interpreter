@@ -7,16 +7,29 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Der Interpreter fuehrt den AST aus.
+ * Er verwaltet:
+ * 1. Den Call-Stack und Scopes (fuer Variablen).
+ * 2. Die Symboltabellen fuer Funktionen und Klassen.
+ * 3. Die Ausfuehrung von Statements und Auswertung von Expressions.
+ *
+ */
 public class Interpreter {
 
-    // Scope-Stack: top = aktueller Scope
+    // Scope-Stack: Eine Liste von Maps. Das oberste Element ist der aktuelle Scope.
+    // Map: Variablenname -> Binding (Verbindung zu Typ und Speicherzelle)
     private final Deque<Map<String, Binding>> scopes = new ArrayDeque<>();
+
+    // Globaler Speicher fuer Funktionsdefinitionen (Name -> Liste von Ueberladungen)
     private final Map<String, java.util.List<ast.FunctionDecl>> functions = new HashMap<>();
+
+    // Globaler Speicher für Klassendefinitionen (Klassenname -> ClassInfo)
     private final Map<String, ClassInfo> classes = new HashMap<>();
 
     private interp.InstanceValue currentReceiver = null;
 
-    // Session-Root: bleibt für main + REPL offen
+    // Der "Sitzungs-Scope": Bleibt zwischen REPL-Eingaben erhalten.
     private final Map<String, Binding> sessionRoot = new HashMap<>();
 
     // Während Funktions-/Methodenaufrufen: Session nicht sichtbar
@@ -30,7 +43,8 @@ public class Interpreter {
     // --------- Public API ---------
 
     public Object run(ASTNode node) {
-        // 1) Programm "ausführen" = Funktionen registrieren + evtl. Top-Level-Statements
+
+        // Programm Ausfuehren
         exec(node);
 
         java.util.List<ast.FunctionDecl> mains = functions.get("main");
@@ -43,10 +57,13 @@ public class Interpreter {
         ast.FunctionDecl main = mains.get(0);
 
 
-        // 3) main ausführen (mit ReturnValue catch)
+        // Ausfuehren mit return Value cache
         try {
-            execBlockInCurrentScope(main.body); // KEIN neuer Scope -> Variablen bleiben in Session
+
+            // KEIN neuer Scope -> Variablen bleiben in Session
+            execBlockInCurrentScope(main.body);
             return null;
+
         } catch (interp.ReturnValue rv) {
             return rv.value;
         }
@@ -54,28 +71,36 @@ public class Interpreter {
 
     // --------- REPL / Program API ---------
 
+    /**
+     * Startet die Ausfuehrung eines Programms (z.B. aus einer Datei).
+     * Registriert erst alle Klassen/Funktionen und fuehrt dann Top-Level Statements aus.
+     */
     public void loadProgram(ast.Program p) {
-        // nutzt exec(Program) -> registriert Klassen/Funktionen, führt top-level statements aus (falls ihr welche habt)
         exec(p);
     }
 
     /**
-     * Führt ein REPL-Snippet aus.
-     * Regeln:
-     * - Neue Funktionen/Klassen werden registriert (global).
-     * - Statements laufen im Session-Scope.
-     * - define-before-use (keine Mehrpass-Auflösung im REPL).
+     * Fuehrt Code im REPL-Modus aus.
+     * Unterscheidet sich vom normalen Run durch "define-before-use" Regel
+     * und Beibehaltung des Session-Scopes.
      */
     public Object execReplProgram(ast.Program p) {
         Object last = null;
 
         for (ast.ASTNode n : p.declarations) {
             if (n instanceof ast.FunctionDecl || n instanceof ast.ClassDecl) {
-                exec(n); // registrieren
+
+                // Regestrierung
+                exec(n);
+
             } else if (n instanceof ast.Statement s) {
-                last = exec(s); // ausführen (im Session-Scope)
+
+                // Ausfuehrung im Session-Scope
+                last = exec(s);
+
             } else {
-                // falls bei euch Expr o.ä. direkt in declarations landen sollte (eher nicht)
+
+                // else-case: Expression in Declaration
                 last = exec(n);
             }
         }
@@ -83,8 +108,8 @@ public class Interpreter {
     }
 
     /**
-     * Führt main() aus, falls vorhanden. Wenn keine main() existiert -> null.
-     * main läuft im Session-Scope und der Scope bleibt offen.
+     * Fuehrt main() aus, falls vorhanden. Wenn keine main() existiert -> null.
+     * main() laeuft im Session-Scope und der Scope bleibt offen.
      */
     public Object runMainIfPresent() {
         java.util.List<ast.FunctionDecl> mains = functions.get("main");
@@ -94,8 +119,6 @@ public class Interpreter {
         ast.FunctionDecl main = mains.get(0);
 
         try {
-            // WICHTIG: main.body NICHT als BlockStmt ausführen (würde Scope push/pop machen),
-            // sondern direkt die Statements im aktuellen Session-Scope ausführen.
             return execBlockInCurrentScope(main.body);
         } catch (interp.ReturnValue rv) {
             return rv.value;
