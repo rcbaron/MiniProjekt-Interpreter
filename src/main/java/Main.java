@@ -14,14 +14,18 @@ public class Main {
 
         // --------- Testeingabe ---------
         String input = """
-                int main() {
-                           int x = 5;
-                           print_int(x);
-                           print_bool(true);
-                           print_char('a');
-                           print_string("hi");
-                         }
-                         
+             class A {
+                       public:
+                         int x;
+                         int get() { return x; }
+                     }
+                     
+                     int main() {
+                       A a;
+                       a.x = 5;
+                       a.get();
+                     }
+                     
         """;
 
 

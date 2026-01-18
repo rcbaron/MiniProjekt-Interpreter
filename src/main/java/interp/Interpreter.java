@@ -12,6 +12,10 @@ public class Interpreter {
     // Scope-Stack: top = aktueller Scope
     private final Deque<Map<String, Binding>> scopes = new ArrayDeque<>();
     private final Map<String, java.util.List<ast.FunctionDecl>> functions = new HashMap<>();
+    private final Map<String, ClassInfo> classes = new HashMap<>();
+
+    private interp.InstanceValue currentReceiver = null;
+
 
     public Interpreter() {
         // globaler Scope
@@ -57,6 +61,22 @@ public class Interpreter {
                 return scope.get(name);
             }
         }
+        // Wenn wir gerade in einer Methode sind: unqualifizierte Namen dürfen Felder sein
+        if (currentReceiver != null) {
+            // Feld-Cell im Objekt suchen
+            Cell c = currentReceiver.fieldCells.get(name);
+            if (c != null) {
+                // Feldtyp aus der registrierten Klasse holen (so sauber wie möglich)
+                ClassInfo ci = classes.get(currentReceiver.dynamicClass);
+                ast.TypeNode ft = (ci != null) ? ci.fields.get(name) : null;
+
+                // Fallback: wenn Typ gerade nicht bekannt ist, trotzdem binden
+                if (ft == null) ft = new ast.IntTypeNode(); // minimaler Fallback
+
+                return new RefBinding(ft, c);
+            }
+        }
+
         throw new RuntimeException("Undefined variable: " + name);
     }
 
@@ -71,8 +91,20 @@ public class Interpreter {
     // --------- LValue helper ---------
 
     private Cell evalLValue(Expr e) {
+        if (e == null) {
+            throw new RuntimeException("BUG: evalLValue got null Expr (ASTBuilder created null)");
+        }
         if (e instanceof VarExpr v) {
             return lookupBinding(v.name).cell();
+        }
+        if (e instanceof ast.FieldAccessExpr fa) {
+            Object ov = eval(fa.obj);
+            if (!(ov instanceof interp.InstanceValue inst)) {
+                throw new RuntimeException("Field access on non-object");
+            }
+            Cell c = inst.fieldCells.get(fa.field);
+            if (c == null) throw new RuntimeException("Unknown field: " + fa.field);
+            return c;
         }
         throw new RuntimeException("Not an lvalue: " + e.getClass().getSimpleName());
     }
@@ -85,13 +117,28 @@ public class Interpreter {
             throw new RuntimeException("BUG: exec() got null AST node");
         }
 
-        // Program: alle Declarations/Top-Level Nodes ausführen
         if (node instanceof Program p) {
+            // Pass 1: Klassen und Funktionen registrieren
+            for (ASTNode decl : p.declarations) {
+                if (decl instanceof ast.ClassDecl cd) exec(cd);       // ruft registerClass
+                if (decl instanceof ast.FunctionDecl fd) exec(fd);    // registriert functions
+            }
+
+            // Pass 2: restliche Statements (falls vorhanden)
             Object last = null;
             for (ASTNode decl : p.declarations) {
-                last = exec(decl);
+                if (decl instanceof ast.Statement s) last = exec(s);
             }
             return last;
+        }
+
+
+        if (node instanceof ast.ClassDecl c) {
+            if (classes.containsKey(c.name)) {
+                throw new RuntimeException("Class redefined: " + c.name);
+            }
+            registerClass(c);
+            return null;
         }
 
         if (node instanceof FunctionDecl f) {
@@ -124,6 +171,14 @@ public class Interpreter {
                 }
                 Cell target = evalLValue(v.init);             // muss lvalue sein
                 define(v.name, new RefBinding(v.type, target)); // Alias
+                return null;
+            }
+
+            // Klassentyp: T x;  -> Default-Konstruktor / Default-Init
+            if (v.type instanceof ast.ClassTypeNode ct && v.init == null) {
+                // InstanceValue mit Feldern anlegen
+                interp.InstanceValue inst = newInstance(ct.name);  // ct.name ggf. anpassen
+                define(v.name, new ValueBinding(v.type, new Cell(inst)));
                 return null;
             }
 
@@ -317,6 +372,101 @@ public class Interpreter {
             return lookupValue(ve.name);
         }
 
+        if (e instanceof ast.FieldAccessExpr fa) {
+            return evalLValue(fa).get();
+        }
+
+        if (e instanceof ast.MethodCallExpr mc) {
+            // 1) Receiver auswerten
+            Object rv = eval(mc.obj);
+            if (!(rv instanceof interp.InstanceValue inst)) {
+                throw new RuntimeException("Method call on non-object");
+            }
+
+            // 2) Klasse holen
+            ClassInfo ci = classes.get(inst.dynamicClass);
+            if (ci == null) throw new RuntimeException("Unknown class: " + inst.dynamicClass);
+
+            java.util.List<MethodInfo> overloads = ci.methods.get(mc.method);
+            if (overloads == null || overloads.isEmpty()) {
+                throw new RuntimeException("Undefined method: " + inst.dynamicClass + "." + mc.method);
+            }
+
+            // 3) Kandidaten nach Arity filtern
+            java.util.List<MethodInfo> candidates = new java.util.ArrayList<>();
+            for (MethodInfo cand : overloads) {
+                if (cand.params.size() == mc.args.size()) candidates.add(cand);
+            }
+            if (candidates.isEmpty()) {
+                throw new RuntimeException("No matching overload for " + mc.method +
+                        " with " + mc.args.size() + " args");
+            }
+
+            // 4) Argumenttypen bestimmen (wie bei Funktionen)
+            java.util.List<ast.TypeNode> argTypes = new java.util.ArrayList<>();
+            for (ast.Expr arg : mc.args) {
+                ast.TypeNode t = inferType(arg);
+                if (t == null) throw new RuntimeException("Cannot infer type of argument in call to " + mc.method);
+                argTypes.add(t);
+            }
+
+            // 5) Exakt matchen inkl. & (gleiches Schema wie bei FunctionCall)
+            MethodInfo target = null;
+            outer:
+            for (MethodInfo cand : candidates) {
+                for (int i = 0; i < cand.params.size(); i++) {
+                    ast.TypeNode paramType = cand.params.get(i).type;
+                    ast.TypeNode argType = argTypes.get(i);
+
+                    if (paramType instanceof ast.RefTypeNode rt) {
+                        if (!sameType(rt.base, argType)) continue outer;
+                        try { evalLValue(mc.args.get(i)); } catch (RuntimeException ex) { continue outer; }
+                    } else {
+                        if (!sameType(paramType, argType)) continue outer;
+                    }
+                }
+                target = cand;
+                break;
+            }
+
+            if (target == null) {
+                throw new RuntimeException("No matching overload for " + mc.method + " with given argument types");
+            }
+
+            // 6) Call ausführen: Receiver setzen + Scope
+            interp.InstanceValue prevRecv = currentReceiver;
+            currentReceiver = inst;
+
+            scopes.push(new java.util.HashMap<>());
+            try {
+                // Parameter binden (by-value / by-ref)
+                for (int i = 0; i < target.params.size(); i++) {
+                    ast.Param p = target.params.get(i);
+                    ast.Expr argExpr = mc.args.get(i);
+
+                    if (p.type instanceof ast.RefTypeNode) {
+                        Cell argCell = evalLValue(argExpr);
+                        define(p.name, new RefBinding(p.type, argCell));
+                    } else {
+                        Object v = eval(argExpr);
+                        define(p.name, new ValueBinding(p.type, new Cell(v)));
+                    }
+                }
+
+                try {
+                    exec(target.body);
+                    return null;
+                } catch (interp.ReturnValue rv2) {
+                    return rv2.value;
+                }
+
+            } finally {
+                scopes.pop();
+                currentReceiver = prevRecv;
+            }
+        }
+
+
         if (e instanceof BinaryExpr be) {
             if ("&&".equals(be.op)) {
                 boolean lb = toBool(eval(be.left));
@@ -351,13 +501,11 @@ public class Interpreter {
                 }
 
                 case "=" -> {
-                    if (!(be.left instanceof VarExpr v)) {
-                        throw new RuntimeException("Left side of assignment must be a variable");
-                    }
-                    // rechts ist schon eval()'d (r)
-                    assign(v.name, r);
+                    Cell left = evalLValue(be.left);   // VarExpr oder FieldAccessExpr
+                    left.set(r);
                     yield r;
                 }
+
 
                 case "==" -> ((Integer) l).intValue() == ((Integer) r).intValue();
                 case "!=" -> ((Integer) l).intValue() != ((Integer) r).intValue();
@@ -437,6 +585,62 @@ public class Interpreter {
         // Funktionsaufrufe: Rückgabetyp (später sauber, jetzt nicht nötig)
         return null;
     }
+
+    private void registerClass(ast.ClassDecl c) {
+        if (classes.containsKey(c.name)) {
+            throw new RuntimeException("Class redefined: " + c.name);
+        }
+
+        // ClassInfo anlegen
+        ClassInfo ci = new ClassInfo(c.name, c.baseName); // falls baseName bei dir anders heißt, anpassen
+
+        // Members einsammeln: bei dir sind das vermutlich VarDeclStmt und FunctionDecl
+        for (ast.ASTNode m : c.members) {                 // falls members anders heißt, anpassen
+            if (m instanceof ast.VarDeclStmt v) {
+                // Feld: Typ + Name
+                if (ci.fields.containsKey(v.name)) throw new RuntimeException("Duplicate field: " + v.name);
+                ci.fields.put(v.name, v.type);
+            } else if (m instanceof ast.FunctionDecl f) {
+                // Methode: als MethodInfo speichern (minimal)
+                MethodInfo mi = new MethodInfo(
+                        f.name,
+                        /* returnType */ null,            // wenn ihr ReturnType noch nicht im AST habt
+                        f.params,
+                        f.body,
+                        /* isVirtual */ false,
+                        c.name
+                );
+                ci.methods.computeIfAbsent(f.name, k -> new java.util.ArrayList<>()).add(mi);
+            } else {
+                throw new RuntimeException("Unknown class member: " + m.getClass().getSimpleName());
+            }
+        }
+
+        classes.put(c.name, ci);
+    }
+
+    private Object defaultValue(ast.TypeNode t) {
+        if (t instanceof ast.IntTypeNode) return 0;
+        if (t instanceof ast.BoolTypeNode) return false;
+        if (t instanceof ast.CharTypeNode) return '\0';
+        if (t instanceof ast.StringTypeNode) return "";
+        if (t instanceof ast.ClassTypeNode ct) return newInstance(ct.name);
+        throw new RuntimeException("No default value for type: " + t.getClass().getSimpleName());
+    }
+
+    private interp.InstanceValue newInstance(String className) {
+        ClassInfo ci = classes.get(className);
+        if (ci == null) throw new RuntimeException("Unknown class: " + className);
+
+        java.util.LinkedHashMap<String, Cell> fieldCells = new java.util.LinkedHashMap<>();
+        // Felder (ohne Vererbung erstmal)
+        for (var e : ci.fields.entrySet()) {
+            fieldCells.put(e.getKey(), new Cell(defaultValue(e.getValue())));
+        }
+        return new interp.InstanceValue(className, fieldCells);
+    }
+
+
 
 
 
