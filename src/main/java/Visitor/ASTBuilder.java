@@ -336,6 +336,10 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
         return new ast.ReturnStmt(e);
     }
 
+    /**
+     * Besucht einen Funktionsaufruf oder Konstruktoraufruf (wenn direkt als Atom).
+     * Unterscheidung erfolgt spaeter semantisch oder im Interpreter.
+     */
     @Override
     public ASTNode visitCallOrCtor(MiniCppParser.CallOrCtorContext ctx) {
         String name = ctx.ID().getText();
@@ -350,6 +354,7 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
         return new ast.FunctionCallExpr(name, args);
     }
 
+    // Typ-Besucher (liefern TypeNode-Instanzen)
     @Override
     public ast.ASTNode visitIntType(parser.MiniCppParser.IntTypeContext ctx) {
         return new ast.IntTypeNode();
@@ -371,14 +376,15 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
     }
 
     @Override
+    public ast.ASTNode visitClassType(parser.MiniCppParser.ClassTypeContext ctx) {
+        return new ast.ClassTypeNode(ctx.ID().getText());
+    }
+
+    // Rekursiv den Basistyp besuchen (z.B. int in int&)
+    @Override
     public ast.ASTNode visitRefType(parser.MiniCppParser.RefTypeContext ctx) {
         ast.TypeNode base = (ast.TypeNode) visit(ctx.type());
         return new ast.RefTypeNode(base);
-    }
-
-    @Override
-    public ast.ASTNode visitClassType(parser.MiniCppParser.ClassTypeContext ctx) {
-        return new ast.ClassTypeNode(ctx.ID().getText());
     }
 
     @Override
@@ -387,13 +393,15 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
         return new ast.BoolLiteral(v);
     }
 
+    // Hilfsmethode parseCharLiteral entfernt ' ' und behandelt Escapes
     @Override
     public ast.ASTNode visitCharLiteral(parser.MiniCppParser.CharLiteralContext ctx) {
-        String text = ctx.CHAR().getText();   // z.B. 'a' oder '\0'
+        String text = ctx.CHAR().getText();
         char c = parseCharLiteral(text);
         return new ast.CharLiteral(c);
     }
 
+    // Hilfsmethode unescapeString entfernt " " und behandelt Escapes
     @Override
     public ast.ASTNode visitStringLiteral(parser.MiniCppParser.StringLiteralContext ctx) {
         String raw = ctx.STRING().getText(); // inkl. ""
@@ -435,11 +443,17 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
                 if (i + 3 < ctx.getChildCount() && !")".equals(ctx.getChild(i + 3).getText())) {
 
                     // Argumente extrahieren ...
+
                     /*
-                     * argList-context ist irgendwo als Kind; einfacher: visit über ctx.argList(k)
-                     * Wir ziehen den nächsten ArgListContext in Reihenfolge:
-                     * -> dafür zählen wir, wie viele MethodCalls wir schon verarbeitet haben.
-                     * Einfacher Ansatz: parse args über MiniCppParser.ArgListContext aus dem subtree:
+                     * Der ArgListContext befindet sich an einer untergeordneten Stelle im Parsebaum.
+                     * Anstatt den Kontext manuell zu suchen, wird er direkt ueber ctx.argList(k) besucht.
+                     *
+                     * Dabei wird der jeweils naechste ArgListContext in der Reihenfolge der MethodCalls
+                     * verwendet. Zu diesem Zweck wird mitgezaehlt, wie viele MethodCalls bereits
+                     * verarbeitet wurden.
+                     *
+                     * Alternativ kann die Argumentliste direkt aus dem Subtree als
+                     * MiniCppParser.ArgListContext geparst werden.
                      */
                     MiniCppParser.ArgListContext al = null;
                     for (int j = i; j < ctx.getChildCount(); j++) {
@@ -458,12 +472,14 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
 
                 cur = new ast.MethodCallExpr(cur, name, args);
 
-                // skip: . ID ( ... )
+                // Index weiterschieben (über . ID ( args ))
                 // wir springen bis nach der schließenden ")"
                 int j = i + 2;
                 while (j < ctx.getChildCount() && !")".equals(ctx.getChild(j).getText())) j++;
                 i = j + 1;
             } else {
+
+                // Einfacher Feldzugriff
                 cur = new ast.FieldAccessExpr(cur, name);
                 i = i + 2; // skip: . ID
             }
@@ -493,15 +509,15 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
     }
 
 
+    // Hilfsmethoden fuer Escaping
     private char parseCharLiteral(String tokenText) {
-        // tokenText inkl. Quotes, z.B.  'a'  oder  '\0'
+
         String inner = tokenText.substring(1, tokenText.length() - 1);
 
         if (inner.length() == 1 && inner.charAt(0) != '\\') {
             return inner.charAt(0);
         }
 
-        // Escape-Sequenzen (minimal)
         if (inner.startsWith("\\")) {
             char esc = inner.length() >= 2 ? inner.charAt(1) : '\0';
             return switch (esc) {
@@ -520,7 +536,7 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
     }
 
     private String unescapeString(String s) {
-        // minimal: \" \\ \n \t \r \0
+
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < s.length(); i++) {
             char ch = s.charAt(i);
