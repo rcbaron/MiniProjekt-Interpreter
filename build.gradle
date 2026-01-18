@@ -18,5 +18,5 @@ generateGrammarSource {
 apply plugin: 'application'
 
 application {
-    mainClass = 'minicpp.Main'
+    mainClass = 'Main'
 }
