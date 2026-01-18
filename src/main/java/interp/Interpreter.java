@@ -16,10 +16,15 @@ public class Interpreter {
 
     private interp.InstanceValue currentReceiver = null;
 
+    // Session-Root: bleibt für main + REPL offen
+    private final Map<String, Binding> sessionRoot = new HashMap<>();
+
+    // Während Funktions-/Methodenaufrufen: Session nicht sichtbar
+    private boolean hideSessionForCalls = false;
+
 
     public Interpreter() {
-        // globaler Scope
-        scopes.push(new HashMap<>());
+        scopes.push(sessionRoot); // Session-Scope ist der unterste Scope
     }
 
     // --------- Public API ---------
@@ -40,12 +45,63 @@ public class Interpreter {
 
         // 3) main ausführen (mit ReturnValue catch)
         try {
-            exec(main.body);
+            execBlockInCurrentScope(main.body); // KEIN neuer Scope -> Variablen bleiben in Session
             return null;
         } catch (interp.ReturnValue rv) {
             return rv.value;
         }
     }
+
+    // --------- REPL / Program API ---------
+
+    public void loadProgram(ast.Program p) {
+        // nutzt exec(Program) -> registriert Klassen/Funktionen, führt top-level statements aus (falls ihr welche habt)
+        exec(p);
+    }
+
+    /**
+     * Führt ein REPL-Snippet aus.
+     * Regeln:
+     * - Neue Funktionen/Klassen werden registriert (global).
+     * - Statements laufen im Session-Scope.
+     * - define-before-use (keine Mehrpass-Auflösung im REPL).
+     */
+    public Object execReplProgram(ast.Program p) {
+        Object last = null;
+
+        for (ast.ASTNode n : p.declarations) {
+            if (n instanceof ast.FunctionDecl || n instanceof ast.ClassDecl) {
+                exec(n); // registrieren
+            } else if (n instanceof ast.Statement s) {
+                last = exec(s); // ausführen (im Session-Scope)
+            } else {
+                // falls bei euch Expr o.ä. direkt in declarations landen sollte (eher nicht)
+                last = exec(n);
+            }
+        }
+        return last;
+    }
+
+    /**
+     * Führt main() aus, falls vorhanden. Wenn keine main() existiert -> null.
+     * main läuft im Session-Scope und der Scope bleibt offen.
+     */
+    public Object runMainIfPresent() {
+        java.util.List<ast.FunctionDecl> mains = functions.get("main");
+        if (mains == null || mains.isEmpty()) return null;
+        if (mains.size() != 1) throw new RuntimeException("Ambiguous main()");
+
+        ast.FunctionDecl main = mains.get(0);
+
+        try {
+            // WICHTIG: main.body NICHT als BlockStmt ausführen (würde Scope push/pop machen),
+            // sondern direkt die Statements im aktuellen Session-Scope ausführen.
+            return execBlockInCurrentScope(main.body);
+        } catch (interp.ReturnValue rv) {
+            return rv.value;
+        }
+    }
+
 
     // --------- Scope helpers (NEU) ---------
 
@@ -55,22 +111,20 @@ public class Interpreter {
 
     private Binding lookupBinding(String name) {
         for (Map<String, Binding> scope : scopes) {
-            if (scope.containsKey(name)) {
-                return scope.get(name);
-            }
+            // Wenn wir in einem Call sind: Session-Scope NICHT durchsuchen
+            if (hideSessionForCalls && scope == sessionRoot) break;
+
+            Binding b = scope.get(name);
+            if (b != null) return b;
         }
+
         // Wenn wir gerade in einer Methode sind: unqualifizierte Namen dürfen Felder sein
         if (currentReceiver != null) {
-            // Feld-Cell im Objekt suchen
             Cell c = currentReceiver.fieldCells.get(name);
             if (c != null) {
-                // Feldtyp aus der registrierten Klasse holen (so sauber wie möglich)
                 ClassInfo ci = classes.get(currentReceiver.dynamicClass);
                 ast.TypeNode ft = (ci != null) ? ci.fields.get(name) : null;
-
-                // Fallback: wenn Typ gerade nicht bekannt ist, trotzdem binden
-                if (ft == null) ft = new ast.IntTypeNode(); // minimaler Fallback
-
+                if (ft == null) ft = new ast.IntTypeNode(); // Fallback
                 return new RefBinding(ft, c);
             }
         }
@@ -143,7 +197,63 @@ public class Interpreter {
         return new interp.InstanceValue(base, cells);
     }
 
+    private Object execBlockInCurrentScope(ast.BlockStmt b) {
+        Object last = null;
+        for (ast.Statement s : b.statements) {
+            last = exec(s);
+        }
+        return last;
+    }
 
+    private void callCtor(String className, java.util.List<Object> args, interp.InstanceValue receiver) {
+        ClassInfo ci = classInfo(className);
+
+        // passenden ctor suchen: exakt Arity + Typen (minimal)
+        CtorInfo target = null;
+        outer:
+        for (CtorInfo cand : ci.ctors) {
+            if (cand.params.size() != args.size()) continue;
+
+            for (int i = 0; i < cand.params.size(); i++) {
+                ast.TypeNode pt = cand.params.get(i).type;
+                ast.TypeNode at = typeOfValue(args.get(i));
+                if (at == null || !sameType(pt, at)) continue outer;
+            }
+            target = cand;
+            break;
+        }
+
+        if (target == null) {
+            throw new RuntimeException("No matching constructor for " + className + " with " + args.size() + " args");
+        }
+
+        // Basisklassen-Default-Konstruktor zuerst (Pflicht)
+        if (ci.baseName != null) {
+            callCtor(ci.baseName, java.util.List.of(), receiver);
+        }
+
+        // ctor ausführen: wie Methoden-Call: currentReceiver setzen, Session ausblenden
+        interp.InstanceValue prevRecv = currentReceiver;
+        boolean prevHide = hideSessionForCalls;
+        currentReceiver = receiver;
+        hideSessionForCalls = true;
+
+        scopes.push(new java.util.HashMap<>());
+        try {
+            // Parameter binden (by value reicht hier)
+            for (int i = 0; i < target.params.size(); i++) {
+                ast.Param p = target.params.get(i);
+                define(p.name, new ValueBinding(p.type, new Cell(args.get(i))));
+            }
+
+            exec(target.body);
+
+        } finally {
+            scopes.pop();
+            hideSessionForCalls = prevHide;
+            currentReceiver = prevRecv;
+        }
+    }
 
     // --------- Execution ---------
 
@@ -218,8 +328,15 @@ public class Interpreter {
             }
 
             // normale Variable: T x = expr;
-            Object value = (v.init != null) ? eval(v.init) : 0; // default int=0
+            Object value = (v.init != null) ? eval(v.init) : 0;
+
+            if (value instanceof interp.InstanceValue instVal
+                    && !(v.type instanceof RefTypeNode)) {
+                value = instVal.deepCopy();
+            }
+
             define(v.name, new ValueBinding(v.type, new Cell(value)));
+
             return null;
         }
 
@@ -295,6 +412,18 @@ public class Interpreter {
                 return null;
             }
 
+            // ---------- CTOR CALL: A(args) ----------
+            if (!functions.containsKey(fc.name) && classes.containsKey(fc.name)) {
+                // new instance (mit Feldern inkl. Basisklassen)
+                interp.InstanceValue inst = newInstance(fc.name);
+
+                java.util.List<Object> args = new java.util.ArrayList<>();
+                for (ast.Expr a : fc.args) args.add(eval(a));
+
+                callCtor(fc.name, args, inst);
+                return inst; // liefert Objektwert (wird bei "A a = A(7);" kopiert)
+            }
+
             java.util.List<ast.FunctionDecl> overloads = functions.get(fc.name);
             if (overloads == null || overloads.isEmpty()) {
                 throw new RuntimeException("Undefined function: " + fc.name);
@@ -322,7 +451,7 @@ public class Interpreter {
                 argTypes.add(t);
             }
 
-// Kandidaten nach Param-Typen filtern
+            // Kandidaten nach Param-Typen filtern
             java.util.List<ast.FunctionDecl> typedMatches = new java.util.ArrayList<>();
             for (ast.FunctionDecl cand : candidates) {
                 boolean ok = true;
@@ -370,6 +499,9 @@ public class Interpreter {
                 values.add(eval(arg));
             }
 
+            boolean prevHide = hideSessionForCalls;
+            hideSessionForCalls = true;
+
             // Neuer Scope für den Funktionsaufruf
             scopes.push(new java.util.HashMap<>());
             try {
@@ -398,6 +530,7 @@ public class Interpreter {
 
             } finally {
                 scopes.pop();
+                hideSessionForCalls = prevHide;
             }
         }
 
@@ -478,6 +611,10 @@ public class Interpreter {
             interp.InstanceValue prevRecv = currentReceiver;
             currentReceiver = inst;
 
+            // 👇 REPL-Regel: Session in Calls nicht sichtbar machen
+            boolean prevHide = hideSessionForCalls;
+            hideSessionForCalls = true;
+
             scopes.push(new java.util.HashMap<>());
             try {
                 // Parameter binden (by-value / by-ref)
@@ -503,7 +640,8 @@ public class Interpreter {
 
             } finally {
                 scopes.pop();
-                currentReceiver = prevRecv;
+                hideSessionForCalls = prevHide;     // 👈 WICHTIG: zurücksetzen
+                currentReceiver = prevRecv;         // Receiver zurücksetzen
             }
         }
 
@@ -652,28 +790,43 @@ public class Interpreter {
         ClassInfo ci = new ClassInfo(c.name, c.baseName); // falls baseName bei dir anders heißt, anpassen
 
         // Members einsammeln: bei dir sind das vermutlich VarDeclStmt und FunctionDecl
-        for (ast.ASTNode m : c.members) {                 // falls members anders heißt, anpassen
+        for (ast.ASTNode m : c.members) {
             if (m instanceof ast.VarDeclStmt v) {
-                // Feld: Typ + Name
-                if (ci.fields.containsKey(v.name)) throw new RuntimeException("Duplicate field: " + v.name);
+                if (ci.fields.containsKey(v.name))
+                    throw new RuntimeException("Duplicate field: " + v.name);
                 ci.fields.put(v.name, v.type);
+
             } else if (m instanceof ast.FunctionDecl f) {
-                // Methode: als MethodInfo speichern (minimal)
                 MethodInfo mi = new MethodInfo(
                         f.name,
                         null,
                         f.params,
                         f.body,
-                        f.isVirtual,   // <-- statt false
+                        f.isVirtual,
                         c.name
                 );
+                ci.methods
+                        .computeIfAbsent(f.name, k -> new java.util.ArrayList<>())
+                        .add(mi);
 
-                ci.methods.computeIfAbsent(f.name, k -> new java.util.ArrayList<>()).add(mi);
+            } else if (m instanceof ast.ConstructorDecl cd) {
+                ci.ctors.add(new CtorInfo(cd.className, cd.params, cd.body));
+
             } else {
-                throw new RuntimeException("Unknown class member: " + m.getClass().getSimpleName());
+                throw new RuntimeException("Unknown class member: "
+                        + m.getClass().getSimpleName());
             }
         }
 
+        if (ci.ctors.isEmpty()) {
+            ci.ctors.add(
+                    new CtorInfo(
+                            c.name,
+                            java.util.List.of(),
+                            new ast.BlockStmt()
+                    )
+            );
+        }
         classes.put(c.name, ci);
     }
 

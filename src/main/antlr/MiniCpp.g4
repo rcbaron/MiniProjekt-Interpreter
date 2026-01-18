@@ -21,9 +21,14 @@ classDecl
     ;
 
 classMember
-    : varDecl          # VarDeclMember
-    | functionDecl     # FuncDeclMember
+    : varDecl                 # VarDeclMember
+    | constructorDecl         # CtorDeclMember
+    | functionDecl            # FuncDeclMember
     ;
+constructorDecl
+    : ID '(' paramList? ')' block
+    ;
+
 varDecl
     : type ID ('=' expr)? ';'
     ;

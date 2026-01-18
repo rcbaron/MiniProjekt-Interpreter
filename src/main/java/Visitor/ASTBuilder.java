@@ -416,6 +416,23 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
         return cur;
     }
 
+    @Override
+    public ASTNode visitConstructorDecl(parser.MiniCppParser.ConstructorDeclContext ctx) {
+        String className = ctx.ID().getText();
+
+        java.util.List<ast.Param> params = new java.util.ArrayList<>();
+        if (ctx.paramList() != null) {
+            for (parser.MiniCppParser.ParamContext p : ctx.paramList().param()) {
+                ast.TypeNode pt = (ast.TypeNode) visit(p.type());
+                String pn = p.ID().getText();
+                params.add(new ast.Param(pt, pn));
+            }
+        }
+
+        ast.BlockStmt body = (ast.BlockStmt) visit(ctx.block());
+        return new ast.ConstructorDecl(className, params, body);
+    }
+
 
     private char parseCharLiteral(String tokenText) {
         // tokenText inkl. Quotes, z.B.  'a'  oder  '\0'
