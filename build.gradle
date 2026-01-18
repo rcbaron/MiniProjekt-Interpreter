@@ -1,8 +1,5 @@
-plugins {
-    id 'java'
-    id 'application'
-    id 'antlr'
-}
+apply plugin: 'java'
+apply plugin: 'antlr'
 
 repositories {
     mavenCentral()
@@ -13,11 +10,13 @@ dependencies {
     implementation "org.antlr:antlr4-runtime:4.13.1"
 }
 
-application {
-    mainClass = 'Main'
+generateGrammarSource {
+    arguments += ['-visitor', '-package', 'parser']
+    outputDirectory = file("$buildDir/generated-src/antlr/main/parser")
 }
 
-generateGrammarSource {
-    maxHeapSize = "64m"
-    arguments += ['-visitor', '-no-listener']
+apply plugin: 'application'
+
+application {
+    mainClass = 'Main'
 }

@@ -9,42 +9,33 @@ package minicpp.antlr;
  * ============================================================ */
 
 program
-    : (classDecl | functionDecl)* EOF
-    ;
-
-/* ---------------- Classes ---------------- */
-
-classDecl
-    : CLASS Identifier
-      ( ':' PUBLIC Identifier )?
-      '{' classMember* '}'
-      ';'
-    ;
-
-classMember
-    : fieldDecl
-    | methodDecl
+    : (functionDecl | classDecl | stmt)* EOF
     ;
 
 /* ---------------- Functions / Methods ---------------- */
 
 functionDecl
-    : type Identifier '(' parameterList? ')' block
+    : type ID '(' paramList? ')' block
     ;
 
-methodDecl
-    : (VIRTUAL)?
-      type Identifier '(' parameterList? ')' block
+paramList
+    : param (',' param)*
     ;
 
-/* ---------------- Fields / Variables ---------------- */
-
-fieldDecl
-    : type Identifier ';'
+param
+    : type ID
     ;
 
+classDecl
+    : 'class' ID (' : public ' ID)? '{' classMember* '}'
+    ;
+
+classMember
+    : varDecl          # VarDeclMember
+    | functionDecl     # FuncDeclMember
+    ;
 varDecl
-    : type Identifier ('=' expression)? ';'
+    : type ID ('=' expr)? ';'
     ;
 
 /* ---------------- Parameters ---------------- */
@@ -76,172 +67,102 @@ baseType
 /* ---------------- Statements ---------------- */
 
 block
-    : '{' statement* '}'
+    : '{' stmt* '}'
     ;
 
-statement
-    : block
-    | varDecl
-    | assignment ';'
-    | ifStmt
-    | whileStmt
-    | returnStmt
-    | exprStmt
+stmt
+    : varDecl        # VarDeclStmt
+    | e=expr ';'                     # ExprStmt
+    | 'if' '(' expr ')' stmt ('else' stmt)?  # IfStmt
+    | 'while' '(' expr ')' stmt      # WhileStmt
+    | 'return' expr? ';'             # ReturnStmt
+    | block                          # BlockStmt
     ;
 
-ifStmt
-    : IF '(' expression ')' statement (ELSE statement)?
-    ;
-
-whileStmt
-    : WHILE '(' expression ')' statement
-    ;
-
-returnStmt
-    : RETURN expression? ';'
-    ;
-
-exprStmt
-    : expression ';'
-    ;
-
-/* ---------------- Expressions ---------------- */
-
-expression
+expr
     : assignment
     ;
 
 assignment
-    : logicOr ('=' assignment)?
+    : orExpr                       # AssignPass
+    | orExpr '=' assignment         # Assign
     ;
 
-logicOr
-    : logicAnd ('||' logicAnd)*
+orExpr
+    : andExpr                       # OrPass
+    | orExpr '||' andExpr           # Or
     ;
 
-logicAnd
-    : equality ('&&' equality)*
+andExpr
+    : equalityExpr                  # AndPass
+    | andExpr '&&' equalityExpr     # And
     ;
 
-equality
-    : comparison (('==' | '!=') comparison)*
+equalityExpr
+    : relationalExpr                # EqPass
+    | equalityExpr '==' relationalExpr  # Eq
+    | equalityExpr '!=' relationalExpr  # Neq
     ;
 
-comparison
-    : term (('<' | '<=' | '>' | '>=') term)*
+relationalExpr
+    : additiveExpr                  # RelPass
+    | relationalExpr '<' additiveExpr   # Lt
+    | relationalExpr '<=' additiveExpr  # Le
+    | relationalExpr '>' additiveExpr   # Gt
+    | relationalExpr '>=' additiveExpr  # Ge
     ;
 
-term
-    : factor (('+' | '-') factor)*
+additiveExpr
+    : multiplicativeExpr            # AddPass
+    | additiveExpr '+' multiplicativeExpr  # Add
+    | additiveExpr '-' multiplicativeExpr  # Sub
     ;
 
-factor
-    : unary (('*' | '/' | '%') unary)*
+multiplicativeExpr
+    : unaryExpr                     # MulPass
+    | multiplicativeExpr '*' unaryExpr  # Mul
+    | multiplicativeExpr '/' unaryExpr  # Div
+    | multiplicativeExpr '%' unaryExpr  # Mod
     ;
 
-unary
-    : ('!' | '+' | '-') unary
-    | primary
+unaryExpr
+    : '!' unaryExpr                 # Not
+    | '-' unaryExpr                 # UnaryMinus
+    | primary                       # UnaryPass
     ;
 
 primary
-    : atom suffix*
+    : INT                           # IntLiteral
+    | BOOL                          # BoolLiteral
+    | ID                            # Var
+    | '(' expr ')'                  # Parens
     ;
 
-atom
-    : literal
-    | Identifier
-    | functionCall
-    | '(' expression ')'
+argList
+    : expr (',' expr)*
     ;
 
-suffix
-    : '.' Identifier
-    | '(' argumentList? ')'
+type
+    : 'int'       # IntType
+    | 'bool'      # BoolType
+    | 'char'      # CharType
+    | 'string'    # StringType
+    | type '&'    # RefType
+    | ID          # ClassType
     ;
 
-/* ---------------- Calls / Access ---------------- */
 
-functionCall
-    : Identifier '(' argumentList? ')'
-    ;
+// Schlüsselwörter
+ INT    : [0-9]+ ;
+ BOOL   : 'true' | 'false' ;
+ CHAR   : '\'' ( ~['\\] | '\\' . ) '\'' ;
+ STRING : '"' ( ~["\\] | '\\' . )* '"' ;
 
-fieldAccess
-    : primary '.' Identifier
-    ;
+ // Identifier
+ ID     : [a-zA-Z_][a-zA-Z0-9_]* ;
 
-argumentList
-    : expression (',' expression)*
-    ;
-
-/* ---------------- Literals ---------------- */
-
-literal
-    : INT_LITERAL
-    | CHAR_LITERAL
-    | STRING_LITERAL
-    | TRUE
-    | FALSE
-    ;
-
-/* ============================================================
- * Lexer Rules
- * ============================================================ */
-
-/* ---------------- Keywords ---------------- */
-
-INT     : 'int';
-BOOL    : 'bool';
-CHAR    : 'char';
-STRING  : 'string';
-VOID    : 'void';
-
-TRUE    : 'true';
-FALSE   : 'false';
-
-IF      : 'if';
-ELSE    : 'else';
-WHILE   : 'while';
-RETURN  : 'return';
-
-CLASS   : 'class';
-PUBLIC  : 'public';
-VIRTUAL : 'virtual';
-
-/* ---------------- Identifiers ---------------- */
-
-Identifier
-    : [a-zA-Z_][a-zA-Z_0-9]*
-    ;
-
-/* ---------------- Literals ---------------- */
-
-INT_LITERAL
-    : [0-9]+
-    ;
-
-CHAR_LITERAL
-    : '\'' ( '\\' . | ~['\\] ) '\''
-    ;
-
-STRING_LITERAL
-    : '"' ( '\\' . | ~["\\] )* '"'
-    ;
-
-/* ---------------- Comments & Whitespace ---------------- */
-
-LINE_COMMENT
-    : '//' ~[\r\n]* -> skip
-    ;
-
-BLOCK_COMMENT
-    : '/*' .*? '*/' -> skip
-    ;
-
-PREPROCESSOR
-    : '#' ~[\r\n]* -> skip
-    ;
-
-WS
-    : [ \t\r\n]+ -> skip
-    ;
+ // Operatoren & Symbole
+ WS     : [ \t\r\n]+ -> skip ;
+ COMMENT : '//' ~[\r\n]* -> skip ;
+ BLOCK_COMMENT : '/*' .*? '*/' -> skip ;
+ PREPROCESSOR : '#' ~[\r\n]* -> skip ;
