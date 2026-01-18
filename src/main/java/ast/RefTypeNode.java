@@ -1,6 +1,8 @@
 package ast;
 
 public class RefTypeNode extends TypeNode {
-    public TypeNode baseType;
-    public RefTypeNode(TypeNode baseType) { this.baseType = baseType; }
+    public final TypeNode base;
+    public RefTypeNode(TypeNode base) {
+        this.base = base;
+    }
 }

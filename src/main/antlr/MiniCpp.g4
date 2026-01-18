@@ -5,7 +5,7 @@ program
     ;
 
 functionDecl
-    : type ID '(' paramList? ')' block
+    : ('virtual')? type ID '(' paramList? ')' block
     ;
 
 paramList
@@ -17,13 +17,18 @@ param
     ;
 
 classDecl
-    : 'class' ID (' : public ' ID)? '{' classMember* '}'
+    : 'class' ID (':' 'public' ID)? '{' ('public' ':')? classMember* '}' ';'?
     ;
 
 classMember
-    : varDecl          # VarDeclMember
-    | functionDecl     # FuncDeclMember
+    : varDecl                 # VarDeclMember
+    | constructorDecl         # CtorDeclMember
+    | functionDecl            # FuncDeclMember
     ;
+constructorDecl
+    : ID '(' paramList? ')' block
+    ;
+
 varDecl
     : type ID ('=' expr)? ';'
     ;
@@ -90,13 +95,19 @@ multiplicativeExpr
 unaryExpr
     : '!' unaryExpr                 # Not
     | '-' unaryExpr                 # UnaryMinus
-    | primary                       # UnaryPass
+    | postfix                       # UnaryPass
     ;
 
-primary
-    : ID '(' argList? ')'           # FuncCall
+postfix
+    : atom ('.' ID ('(' argList? ')')? )*
+    ;
+
+atom
+    : ID '(' argList? ')'           # CallOrCtor   // wird im ASTBuilder entschieden: FuncCall vs CtorCall
     | INT                           # IntLiteral
     | BOOL                          # BoolLiteral
+    | CHAR                          # CharLiteral
+    | STRING                        # StringLiteral
     | ID                            # Var
     | '(' expr ')'                  # Parens
     ;
