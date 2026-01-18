@@ -1,5 +1,10 @@
 package ast;
 
+/**
+ * String-Literal (Zeichenkette).
+ * Beispiel: "Hallo Welt"
+ *
+ */
 public class StringLiteral extends Expr {
     public final String value;
 
