@@ -1,18 +1,8 @@
 grammar MiniCpp;
 
-@header {
-package minicpp.antlr;
-}
-
-/* ============================================================
- * Parser Rules
- * ============================================================ */
-
 program
     : (functionDecl | classDecl | stmt)* EOF
     ;
-
-/* ---------------- Functions / Methods ---------------- */
 
 functionDecl
     : type ID '(' paramList? ')' block
@@ -37,34 +27,6 @@ classMember
 varDecl
     : type ID ('=' expr)? ';'
     ;
-
-/* ---------------- Parameters ---------------- */
-
-parameterList
-    : parameter (',' parameter)*
-    ;
-
-parameter
-    : type Identifier
-    ;
-
-/* ---------------- Types ---------------- */
-
-type
-    : baseType
-    | Identifier
-    | type '&'
-    ;
-
-baseType
-    : INT
-    | BOOL
-    | CHAR
-    | STRING
-    | VOID
-    ;
-
-/* ---------------- Statements ---------------- */
 
 block
     : '{' stmt* '}'
@@ -132,11 +94,13 @@ unaryExpr
     ;
 
 primary
-    : INT                           # IntLiteral
+    : ID '(' argList? ')'           # FuncCall
+    | INT                           # IntLiteral
     | BOOL                          # BoolLiteral
     | ID                            # Var
     | '(' expr ')'                  # Parens
     ;
+
 
 argList
     : expr (',' expr)*
