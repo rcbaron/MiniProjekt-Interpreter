@@ -22,8 +22,6 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
 
         return p;
     }
-
-
     // ---------- Statements ----------
 
     @Override
@@ -49,8 +47,9 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
     @Override
     public ast.ASTNode visitVarDecl(parser.MiniCppParser.VarDeclContext ctx) {
         String name = ctx.ID().getText();
-        ast.Expr init = ctx.expr() != null ? (ast.Expr) visit(ctx.expr()) : null;
-        return new ast.VarDeclStmt(name, null, init); // type später
+        ast.TypeNode type = (ast.TypeNode) visit(ctx.type());
+        ast.Expr init = (ctx.expr() != null) ? (ast.Expr) visit(ctx.expr()) : null;
+        return new ast.VarDeclStmt(name, type, init);
     }
 
     @Override
@@ -76,18 +75,26 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
 
     @Override
     public ast.ASTNode visitFunctionDecl(parser.MiniCppParser.FunctionDeclContext ctx) {
+        // Funktionsname
         String name = ctx.ID().getText();
 
+        // Parameter (mit Typen!)
         java.util.List<ast.Param> params = new java.util.ArrayList<>();
         if (ctx.paramList() != null) {
             for (parser.MiniCppParser.ParamContext p : ctx.paramList().param()) {
-                params.add(new ast.Param(p.ID().getText()));
+                ast.TypeNode pt = (ast.TypeNode) visit(p.type());
+                String pn = p.ID().getText();
+                params.add(new ast.Param(pt, pn));
             }
         }
 
+        // Funktionsbody
         ast.BlockStmt body = (ast.BlockStmt) visit(ctx.block());
+
+        // AST-Knoten erzeugen
         return new ast.FunctionDecl(name, params, body);
     }
+
 
 
 
@@ -273,5 +280,108 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
 
         return new ast.FunctionCallExpr(name, args);
     }
+
+    @Override
+    public ast.ASTNode visitIntType(parser.MiniCppParser.IntTypeContext ctx) {
+        return new ast.IntTypeNode();
+    }
+
+    @Override
+    public ast.ASTNode visitBoolType(parser.MiniCppParser.BoolTypeContext ctx) {
+        return new ast.BoolTypeNode();
+    }
+
+    @Override
+    public ast.ASTNode visitCharType(parser.MiniCppParser.CharTypeContext ctx) {
+        return new ast.CharTypeNode();
+    }
+
+    @Override
+    public ast.ASTNode visitStringType(parser.MiniCppParser.StringTypeContext ctx) {
+        return new ast.StringTypeNode();
+    }
+
+    @Override
+    public ast.ASTNode visitRefType(parser.MiniCppParser.RefTypeContext ctx) {
+        ast.TypeNode base = (ast.TypeNode) visit(ctx.type());
+        return new ast.RefTypeNode(base);
+    }
+
+    @Override
+    public ast.ASTNode visitClassType(parser.MiniCppParser.ClassTypeContext ctx) {
+        return new ast.ClassTypeNode(ctx.ID().getText());
+    }
+
+    @Override
+    public ast.ASTNode visitBoolLiteral(parser.MiniCppParser.BoolLiteralContext ctx) {
+        boolean v = ctx.BOOL().getText().equals("true");
+        return new ast.BoolLiteral(v);
+    }
+
+    @Override
+    public ast.ASTNode visitCharLiteral(parser.MiniCppParser.CharLiteralContext ctx) {
+        String text = ctx.CHAR().getText();   // z.B. 'a' oder '\0'
+        char c = parseCharLiteral(text);
+        return new ast.CharLiteral(c);
+    }
+
+    @Override
+    public ast.ASTNode visitStringLiteral(parser.MiniCppParser.StringLiteralContext ctx) {
+        String raw = ctx.STRING().getText(); // inkl. ""
+        String s = raw.substring(1, raw.length() - 1);
+        s = unescapeString(s);
+        return new ast.StringLiteral(s);
+    }
+
+
+    private char parseCharLiteral(String tokenText) {
+        // tokenText inkl. Quotes, z.B.  'a'  oder  '\0'
+        String inner = tokenText.substring(1, tokenText.length() - 1);
+
+        if (inner.length() == 1 && inner.charAt(0) != '\\') {
+            return inner.charAt(0);
+        }
+
+        // Escape-Sequenzen (minimal)
+        if (inner.startsWith("\\")) {
+            char esc = inner.length() >= 2 ? inner.charAt(1) : '\0';
+            return switch (esc) {
+                case '0' -> '\0';
+                case 'n' -> '\n';
+                case 't' -> '\t';
+                case 'r' -> '\r';
+                case '\\' -> '\\';
+                case '\'' -> '\'';
+                case '"' -> '"';
+                default -> esc; // fallback
+            };
+        }
+
+        return '\0';
+    }
+
+    private String unescapeString(String s) {
+        // minimal: \" \\ \n \t \r \0
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch == '\\' && i + 1 < s.length()) {
+                char esc = s.charAt(++i);
+                out.append(switch (esc) {
+                    case 'n' -> '\n';
+                    case 't' -> '\t';
+                    case 'r' -> '\r';
+                    case '0' -> '\0';
+                    case '\\' -> '\\';
+                    case '"' -> '"';
+                    default -> esc;
+                });
+            } else {
+                out.append(ch);
+            }
+        }
+        return out.toString();
+    }
+
 
 }

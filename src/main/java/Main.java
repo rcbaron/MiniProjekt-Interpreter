@@ -14,13 +14,14 @@ public class Main {
 
         // --------- Testeingabe ---------
         String input = """
-        int f(int a) { return a + 1; }
-        int f(int a, int b) { return a + b; }
-
-        int main() {
-         f(10);
-         f(2, 3);
-        }
+                int main() {
+                           int x = 5;
+                           print_int(x);
+                           print_bool(true);
+                           print_char('a');
+                           print_string("hi");
+                         }
+                         
         """;
 
 

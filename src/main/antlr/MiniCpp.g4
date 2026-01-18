@@ -97,9 +97,12 @@ primary
     : ID '(' argList? ')'           # FuncCall
     | INT                           # IntLiteral
     | BOOL                          # BoolLiteral
+    | CHAR                          # CharLiteral
+    | STRING                        # StringLiteral
     | ID                            # Var
     | '(' expr ')'                  # Parens
     ;
+
 
 
 argList
