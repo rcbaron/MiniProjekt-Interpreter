@@ -1,7 +1,16 @@
 package ast;
 
+/**
+ * Unaerer Ausdruck (Operator mit nur einem Operanden).
+ * Beispiele: "-5" (Negation) oder "!true" (logisches Nicht).
+ *
+ */
 public class UnaryExpr extends Expr {
-    public String op; // z.B. "-", "!"
+
+    /** Der Operator als String (z.B. "-", "!"). */
+    public String op;
+
+    /** Der Ausdruck, auf den der Operator angewendet wird. */
     public Expr expr;
 
     public UnaryExpr(String op, Expr expr) {

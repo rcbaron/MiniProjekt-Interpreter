@@ -156,7 +156,7 @@ postfix
  * - Funktions-/Konstruktoraufrufe
  * - Literale (Zahlen, Strings, Bools)
  * - Variablenzugriffe
- * - Klammerung von Ausdrücken
+ * - Klammerung von Ausdruecken
  */
 atom
     : ID '(' argList? ')'           # CallOrCtor    // Funktionsaufruf oder Konstruktor (z.B. "f()" oder "A()")
