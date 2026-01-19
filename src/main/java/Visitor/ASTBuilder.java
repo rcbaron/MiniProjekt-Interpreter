@@ -473,7 +473,7 @@ public class ASTBuilder extends MiniCppBaseVisitor<ASTNode> {
 
                 cur = new ast.MethodCallExpr(cur, name, args);
 
-                // Index weiterschieben (über . ID ( args ))
+                // Index weiterschieben (ueber . ID ( args ))
                 // wir springen bis nach der schließenden ")"
                 int j = i + 2;
                 while (j < ctx.getChildCount() && !")".equals(ctx.getChild(j).getText())) j++;

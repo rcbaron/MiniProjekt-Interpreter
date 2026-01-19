@@ -32,12 +32,14 @@ public class Interpreter {
     // Der "Sitzungs-Scope": Bleibt zwischen REPL-Eingaben erhalten.
     private final Map<String, Binding> sessionRoot = new HashMap<>();
 
-    // Während Funktions-/Methodenaufrufen: Session nicht sichtbar
+    // Waehrend Funktions-/Methodenaufrufen: Session nicht sichtbar
     private boolean hideSessionForCalls = false;
 
 
     public Interpreter() {
-        scopes.push(sessionRoot); // Session-Scope ist der unterste Scope
+
+        // Session-Scope ist der unterste Scope
+        scopes.push(sessionRoot);
     }
 
     // --------- Public API ---------
@@ -141,7 +143,7 @@ public class Interpreter {
             if (b != null) return b;
         }
 
-        // Wenn wir gerade in einer Methode sind: unqualifizierte Namen dürfen Felder sein
+        // Wenn wir gerade in einer Methode sind: unqualifizierte Namen duerfen Felder sein
         if (currentReceiver != null) {
             Cell c = currentReceiver.fieldCells.get(name);
             if (c != null) {
@@ -231,7 +233,7 @@ public class Interpreter {
     private void callCtor(String className, java.util.List<Object> args, interp.InstanceValue receiver) {
         ClassInfo ci = classInfo(className);
 
-        // passenden ctor suchen: exakt Arity + Typen (minimal)
+        // passenden ctor suchen: exakt Arity + Typen
         CtorInfo target = null;
         outer:
         for (CtorInfo cand : ci.ctors) {
@@ -250,12 +252,12 @@ public class Interpreter {
             throw new RuntimeException("No matching constructor for " + className + " with " + args.size() + " args");
         }
 
-        // Basisklassen-Default-Konstruktor zuerst (Pflicht)
+        // Basisklassen-Default-Konstruktor zuerst
         if (ci.baseName != null) {
             callCtor(ci.baseName, java.util.List.of(), receiver);
         }
 
-        // ctor ausführen: wie Methoden-Call: currentReceiver setzen, Session ausblenden
+        // ctor ausfuehren: wie Methoden-Call: currentReceiver setzen, Session ausblenden
         interp.InstanceValue prevRecv = currentReceiver;
         boolean prevHide = hideSessionForCalls;
         currentReceiver = receiver;
@@ -263,7 +265,7 @@ public class Interpreter {
 
         scopes.push(new java.util.HashMap<>());
         try {
-            // Parameter binden (by value reicht hier)
+            // Parameter binden by Value
             for (int i = 0; i < target.params.size(); i++) {
                 ast.Param p = target.params.get(i);
                 define(p.name, new ValueBinding(p.type, new Cell(args.get(i))));
@@ -337,15 +339,22 @@ public class Interpreter {
                 if (v.init == null) {
                     throw new RuntimeException("Reference must be initialized: " + v.name);
                 }
-                Cell target = evalLValue(v.init);             // muss lvalue sein
-                define(v.name, new RefBinding(v.type, target)); // Alias
+
+                // muss lvalue sein
+                Cell target = evalLValue(v.init);
+
+                // Alias
+                define(v.name, new RefBinding(v.type, target));
                 return null;
             }
 
             // Klassentyp: T x;  -> Default-Konstruktor / Default-Init
             if (v.type instanceof ast.ClassTypeNode ct && v.init == null) {
+
                 // InstanceValue mit Feldern anlegen
-                interp.InstanceValue inst = newInstance(ct.name);  // ct.name ggf. anpassen
+                interp.InstanceValue inst = newInstance(ct.name);
+
+                // ct.name ggf. anpassen
                 define(v.name, new ValueBinding(v.type, new Cell(inst)));
                 return null;
             }
@@ -437,6 +446,7 @@ public class Interpreter {
 
             // ---------- CTOR CALL: A(args) ----------
             if (!functions.containsKey(fc.name) && classes.containsKey(fc.name)) {
+
                 // new instance (mit Feldern inkl. Basisklassen)
                 interp.InstanceValue inst = newInstance(fc.name);
 
@@ -444,7 +454,9 @@ public class Interpreter {
                 for (ast.Expr a : fc.args) args.add(eval(a));
 
                 callCtor(fc.name, args, inst);
-                return inst; // liefert Objektwert (wird bei "A a = A(7);" kopiert)
+
+                // liefert Objektwert (wird bei "A a = A(7);" kopiert)
+                return inst;
             }
 
             java.util.List<ast.FunctionDecl> overloads = functions.get(fc.name);
@@ -483,11 +495,13 @@ public class Interpreter {
                     ast.TypeNode argType = argTypes.get(i);
 
                     if (paramType instanceof RefTypeNode rt) {
+
                         // 1) Basistyp muss passen (int& akzeptiert int)
                         if (!sameType(rt.base, argType)) {
                             ok = false;
                             break;
                         }
+
                         // 2) Argument MUSS lvalue sein
                         try {
                             evalLValue(fc.args.get(i));
@@ -496,6 +510,7 @@ public class Interpreter {
                             break;
                         }
                     } else {
+
                         // normaler by-value Parameter
                         if (!sameType(paramType, argType)) {
                             ok = false;
@@ -525,24 +540,28 @@ public class Interpreter {
             boolean prevHide = hideSessionForCalls;
             hideSessionForCalls = true;
 
-            // Neuer Scope für den Funktionsaufruf
+            // Neuer Scope fuer den Funktionsaufruf
             scopes.push(new java.util.HashMap<>());
             try {
+
                 // Parameter binden: a=..., b=...
                 for (int i = 0; i < f.params.size(); i++) {
                     Param p = f.params.get(i);
                     Expr argExpr = fc.args.get(i);
 
                     if (p.type instanceof RefTypeNode) {
+
                         // by-reference: Argument muss lvalue sein
                         Cell argCell = evalLValue(argExpr);
                         define(p.name, new RefBinding(p.type, argCell));
                     } else {
+
                         // by-value: Kopie
                         Object v = eval(argExpr);
                         define(p.name, new ValueBinding(p.type, new Cell(v)));
                     }
                 }
+
                 // Body ausführen + return abfangen
                 try {
                     exec(f.body);
@@ -566,6 +585,7 @@ public class Interpreter {
         }
 
         if (e instanceof ast.MethodCallExpr mc) {
+
             // 1) Receiver auswerten
             Object rv = eval(mc.obj);
             if (!(rv instanceof interp.InstanceValue inst)) {
@@ -625,12 +645,12 @@ public class Interpreter {
             if (target == null) {
                 throw new RuntimeException("No matching overload for " + mc.method + " with given argument types");
             }
-            // virtual dispatch wie C++: nur wenn statische Methode virtual ist UND Call über Referenz passiert
+            // virtual dispatch wie C++: nur wenn statische Methode virtual ist UND Call ueber Referenz passiert
             if (target.isVirtual && isCallThroughRef(mc.obj)) {
                 target = resolveOverride(inst.dynamicClass, target.name, target.params);
             }
 
-            // 6) Call ausführen: Receiver setzen + Scope
+            // 6) Call ausfuehren: Receiver setzen + Scope
             interp.InstanceValue prevRecv = currentReceiver;
             currentReceiver = inst;
 
@@ -640,6 +660,7 @@ public class Interpreter {
 
             scopes.push(new java.util.HashMap<>());
             try {
+
                 // Parameter binden (by-value / by-ref)
                 for (int i = 0; i < target.params.size(); i++) {
                     ast.Param p = target.params.get(i);
@@ -663,8 +684,12 @@ public class Interpreter {
 
             } finally {
                 scopes.pop();
-                hideSessionForCalls = prevHide;     // 👈 WICHTIG: zurücksetzen
-                currentReceiver = prevRecv;         // Receiver zurücksetzen
+
+                // Session zuruecksetzen
+                hideSessionForCalls = prevHide;
+
+                // Receiver zuruecksetzen
+                currentReceiver = prevRecv;
             }
         }
 
@@ -672,13 +697,17 @@ public class Interpreter {
         if (e instanceof BinaryExpr be) {
             if ("&&".equals(be.op)) {
                 boolean lb = toBool(eval(be.left));
-                if (!lb) return false;          // short-circuit: rechts NICHT auswerten
+
+                // short-circuit: rechts NICHT auswerten
+                if (!lb) return false;
                 return toBool(eval(be.right));
             }
 
             if ("||".equals(be.op)) {
                 boolean lb = toBool(eval(be.left));
-                if (lb) return true;            // short-circuit: rechts NICHT auswerten
+
+                // short-circuit: rechts NICHT auswerten
+                if (lb) return true;
                 return toBool(eval(be.right));
             }
 
@@ -711,6 +740,7 @@ public class Interpreter {
                         ast.TypeNode lt = lookupBinding(lv.name).type();
 
                         if (lt instanceof ast.ClassTypeNode lct && right instanceof interp.InstanceValue instR) {
+
                             // RHS darf Subklasse sein -> slice auf LHS-Typ
                             if (!instR.dynamicClass.equals(lct.name) && isSubclass(instR.dynamicClass, lct.name)) {
                                 right = sliceTo(lct.name, instR);
@@ -790,7 +820,7 @@ public class Interpreter {
             return t;
         }
 
-        // Binäre Ausdrücke (vereinfachte Regeln)
+        // Binaere Ausdruecke (vereinfachte Regeln)
         if (e instanceof ast.BinaryExpr be) {
             return switch (be.op) {
                 case "+", "-", "*", "/", "%" -> new ast.IntTypeNode();
@@ -800,7 +830,7 @@ public class Interpreter {
             };
         }
 
-        // Funktionsaufrufe: Rückgabetyp (später sauber, jetzt nicht nötig)
+        // Funktionsaufrufe: Rueckgabetyp (spaeter sauber, jetzt nicht noetig)
         return null;
     }
 
@@ -810,7 +840,7 @@ public class Interpreter {
         }
 
         // ClassInfo anlegen
-        ClassInfo ci = new ClassInfo(c.name, c.baseName); // falls baseName bei dir anders heißt, anpassen
+        ClassInfo ci = new ClassInfo(c.name, c.baseName); // falls baseName bei dir anders heisst, anpassen
 
         // Members einsammeln: bei dir sind das vermutlich VarDeclStmt und FunctionDecl
         for (ast.ASTNode m : c.members) {
@@ -867,7 +897,8 @@ public class Interpreter {
         if (ci == null) throw new RuntimeException("Unknown class: " + className);
 
         java.util.LinkedHashMap<String, Cell> fieldCells = new java.util.LinkedHashMap<>();
-        // Felder (ohne Vererbung erstmal)
+
+        // Felder ohne Vererbung
         var allFields = collectAllFields(className);
         for (var e : allFields.entrySet()) {
             fieldCells.put(e.getKey(), new Cell(defaultValue(e.getValue())));
@@ -914,13 +945,4 @@ public class Interpreter {
 
         throw new RuntimeException("BUG: override resolution failed for " + name);
     }
-
-
-
-
-
-
-
-
-
 }

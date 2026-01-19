@@ -46,7 +46,7 @@ classMember
     | functionDecl            # FuncDeclMember
     ;
 
-// Konstruktor-Deklaration: Heisst wie die Klasse (ID), kein Rückgabetyp.
+// Konstruktor-Deklaration: Heisst wie die Klasse (ID), kein Rueckgabetyp.
 constructorDecl
     : ID '(' paramList? ')' block
     ;
@@ -66,17 +66,17 @@ block
  * Hier werden Kontrollfluss und Struktur definiert.
  */
 stmt
-    : varDecl        # VarDeclStmt
-    | e=expr ';'                     # ExprStmt
-    | 'if' '(' expr ')' stmt ('else' stmt)?  # IfStmt
-    | 'while' '(' expr ')' stmt      # WhileStmt
-    | 'return' expr? ';'             # ReturnStmt
-    | block                          # BlockStmt
+    : varDecl                                        # VarDeclStmt
+    | e=expr ';'                                     # ExprStmt
+    | 'if' '(' expr ')' stmt ('else' stmt)?          # IfStmt
+    | 'while' '(' expr ')' stmt                      # WhileStmt
+    | 'return' expr? ';'                             # ReturnStmt
+    | block                                          # BlockStmt
     ;
 
 /**
  * Expressions (Ausdruecke):
- * Die Reihenfolge der Regeln definiert die Operator-Präzedenz (Bindungsstärke).
+ * Die Reihenfolge der Regeln definiert die Operator-Praezedenz (Bindungsstaerke).
  * Je weiter unten eine Regel steht, desto stärker bindet sie (Punkt vor Strich).
  */
 
@@ -206,5 +206,5 @@ type
  // Block-Kommentare (/* ... */) -> ignorieren
  BLOCK_COMMENT : '/*' .*? '*/' -> skip ;
 
- // Praeprozessor (#include etc.) -> ignorieren (laut Aufgabenstellung wie Kommentar behandeln)
+ // Praeprozessor (#include etc.) -> ignorieren
  PREPROCESSOR : '#' ~[\r\n]* -> skip ;
