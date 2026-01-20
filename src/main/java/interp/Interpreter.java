@@ -131,6 +131,9 @@ public class Interpreter {
     // --------- Scope helpers (NEU) ---------
 
     private void define(String name, Binding binding) {
+        if (scopes.peek().containsKey(name)) {
+            throw new RuntimeException("Redefinition in same scope: " + name);
+        }
         scopes.peek().put(name, binding);
     }
 
