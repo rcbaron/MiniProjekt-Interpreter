@@ -1,2 +1,4 @@
-MiniProjekt: MiniCpp Interpreter
-Ein in Java implementierter Interpreter für eine C++-ähnliche Sprache (MiniCpp). Das Projekt unterstützt Klassen, einfache Vererbung, Referenzen, Funktionen und Kontrollstrukturen. Es nutzt ANTLR4 für Lexer und Parser und implementiert einen eigenen Tree-Walking-Interpreter.
+# MiniProjekt: MiniCpp Interpreter
+
+Ein in Java implementierter Interpreter für eine C++-ähnliche Sprache (MiniCpp). Das Projekt unterstützt Klassen, einfache Vererbung, Referenzen, Funktionen und Kontrollstrukturen. 
+Es nutzt ANTLR4 für Lexer und Parser und implementiert einen eigenen Tree-Walking-Interpreter.
