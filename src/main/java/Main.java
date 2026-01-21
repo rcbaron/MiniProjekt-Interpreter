@@ -1,4 +1,4 @@
-import Visitor.ASTBuilder;
+import visitor.ASTBuilder;
 import ast.Program;
 import interp.Interpreter;
 import org.antlr.v4.runtime.*;
@@ -93,7 +93,7 @@ public class Main {
         return (Program) builder.visit(tree);
     }
 
-    // Heuristik für Mehrzeilen-Eingaben: Klammern/Blöcke/Strings/Kommentare balancieren
+    // Heuristik fuer Mehrzeilen-Eingaben: Klammern/Blöcke/Strings/Kommentare balancieren
     private static boolean isInputComplete(String s) {
         int paren = 0, brace = 0;
         boolean inStr = false, inChar = false;

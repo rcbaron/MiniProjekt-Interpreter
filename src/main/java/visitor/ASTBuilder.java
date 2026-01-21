@@ -1,4 +1,4 @@
-package Visitor;
+package visitor;
 
 import ast.*;
 import parser.MiniCppBaseVisitor;

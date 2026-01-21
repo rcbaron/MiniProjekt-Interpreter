@@ -433,7 +433,9 @@ public class Interpreter {
             }
             if (fc.name.equals("print_bool")) {
                 Object v = eval(fc.args.get(0));
-                System.out.println((Boolean) v ? "true" : "false");
+                // ALT: System.out.println((Boolean) v ? "true" : "false");
+                // NEU (C++ Style):
+                System.out.println((Boolean) v ? "1" : "0");
                 return null;
             }
             if (fc.name.equals("print_char")) {
@@ -565,7 +567,7 @@ public class Interpreter {
                     }
                 }
 
-                // Body ausführen + return abfangen
+                // Body ausfuehren + return abfangen
                 try {
                     exec(f.body);
                     return null;
@@ -657,7 +659,7 @@ public class Interpreter {
             interp.InstanceValue prevRecv = currentReceiver;
             currentReceiver = inst;
 
-            // 👇 REPL-Regel: Session in Calls nicht sichtbar machen
+            //  REPL-Regel: Session in Calls nicht sichtbar machen
             boolean prevHide = hideSessionForCalls;
             hideSessionForCalls = true;
 
@@ -757,8 +759,30 @@ public class Interpreter {
 
 
 
-                case "==" -> ((Integer) l).intValue() == ((Integer) r).intValue();
-                case "!=" -> ((Integer) l).intValue() != ((Integer) r).intValue();
+                case "==" -> {
+                    if (l instanceof Integer li && r instanceof Integer ri) {
+                        yield li.intValue() == ri.intValue();
+                    }
+                    if (l instanceof Boolean lb && r instanceof Boolean rb) {
+                        yield lb.booleanValue() == rb.booleanValue();
+                    }
+                    // C++ Semantik: Mixed Types
+                    int li = (l instanceof Boolean b) ? (b ? 1 : 0) : (Integer) l;
+                    int ri = (r instanceof Boolean b) ? (b ? 1 : 0) : (Integer) r;
+                    yield li == ri;
+                }
+                case "!=" -> {
+
+                    if (l instanceof Integer li && r instanceof Integer ri) {
+                        yield li.intValue() != ri.intValue();
+                    }
+                    if (l instanceof Boolean lb && r instanceof Boolean rb) {
+                        yield lb.booleanValue() != rb.booleanValue();
+                    }
+                    int li = (l instanceof Boolean b) ? (b ? 1 : 0) : (Integer) l;
+                    int ri = (r instanceof Boolean b) ? (b ? 1 : 0) : (Integer) r;
+                    yield li != ri;
+                }
                 case "<"  -> ((Integer) l).intValue() <  ((Integer) r).intValue();
                 case "<=" -> ((Integer) l).intValue() <= ((Integer) r).intValue();
                 case ">"  -> ((Integer) l).intValue() >  ((Integer) r).intValue();
