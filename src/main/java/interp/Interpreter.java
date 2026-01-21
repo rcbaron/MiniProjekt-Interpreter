@@ -720,20 +720,20 @@ public class Interpreter {
             Object r = eval(be.right);
 
             return switch (be.op) {
-                case "+" -> (Integer) l + (Integer) r;
-                case "-" -> (Integer) l - (Integer) r;
-                case "*" -> (Integer) l * (Integer) r;
+                case "+" -> toInt(l) + toInt(r);
+                case "-" -> toInt(l) - toInt(r);
+                case "*" -> toInt(l) * toInt(r);
 
                 case "/" -> {
-                    int rr = (Integer) r;
-                    if (rr == 0) throw new RuntimeException("Division by zero");
-                    yield (Integer) l / rr;
+                    int valR = toInt(r);
+                    if (valR == 0) throw new RuntimeException("Division by zero");
+                    yield toInt(l) / valR;
                 }
 
                 case "%" -> {
-                    int rr = (Integer) r;
-                    if (rr == 0) throw new RuntimeException("Modulo by zero");
-                    yield (Integer) l % rr;
+                    int valR = toInt(r);
+                    if (valR == 0) throw new RuntimeException("Modulo by zero");
+                    yield toInt(l) % valR;
                 }
 
                 case "=" -> {
@@ -779,14 +779,14 @@ public class Interpreter {
                     if (l instanceof Boolean lb && r instanceof Boolean rb) {
                         yield lb.booleanValue() != rb.booleanValue();
                     }
-                    int li = (l instanceof Boolean b) ? (b ? 1 : 0) : (Integer) l;
-                    int ri = (r instanceof Boolean b) ? (b ? 1 : 0) : (Integer) r;
+                    int li = (l instanceof Boolean b) ? (b ? 1 : 0) : toInt(l);
+                    int ri = (r instanceof Boolean b) ? (b ? 1 : 0) : toInt(r);
                     yield li != ri;
                 }
-                case "<"  -> ((Integer) l).intValue() <  ((Integer) r).intValue();
-                case "<=" -> ((Integer) l).intValue() <= ((Integer) r).intValue();
-                case ">"  -> ((Integer) l).intValue() >  ((Integer) r).intValue();
-                case ">=" -> ((Integer) l).intValue() >= ((Integer) r).intValue();
+                case "<"  -> toInt(l) <  toInt(r);
+                case "<=" -> toInt(l) <= toInt(r);
+                case ">"  -> toInt(l) >  toInt(r);
+                case ">=" -> toInt(l) >= toInt(r);
 
 
                 default -> throw new RuntimeException("Unknown operator: " + be.op);
@@ -800,6 +800,13 @@ public class Interpreter {
         if (v instanceof Boolean b) return b;
         if (v instanceof Integer i) return i != 0;
         throw new RuntimeException("Condition is not bool/int (yet): " + v);
+    }
+
+    private int toInt(Object v) {
+        if (v instanceof Integer i) return i;
+        if (v instanceof Character c) return (int) c; // 'a' -> 97
+        if (v instanceof Boolean b) return b ? 1 : 0; // true -> 1
+        throw new RuntimeException("Cannot convert to int: " + v);
     }
 
     private boolean sameType(ast.TypeNode a, ast.TypeNode b) {
